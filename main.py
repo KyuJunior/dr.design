@@ -1,6 +1,5 @@
 import telebot
 from telebot import types
-from background import keep_alive
 import re
 import json
 import os
@@ -58,10 +57,10 @@ def toggle_block(user_id, admin_name):
     blocked = load_json(BLOCKED_FILE)
     user_id = str(user_id)
     if user_id in blocked:
-        del blocked[user_id] # إلغاء الحظر
+        del blocked[user_id]
         status = "unblocked"
     else:
-        blocked[user_id] = {"by": admin_name, "date": str(datetime.now())} # حظر
+        blocked[user_id] = {"by": admin_name, "date": str(datetime.now())}
         status = "blocked"
     save_json(BLOCKED_FILE, blocked)
     return status
@@ -69,7 +68,7 @@ def toggle_block(user_id, admin_name):
 # --- 1. ترحيب ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    if is_user_blocked(message.chat.id): return # تجاهل المحظورين
+    if is_user_blocked(message.chat.id): return
     bot.reply_to(message, "👋 أهلاً بك! \nأرسل رسالتك وسأرد عليك قريباً.")
 
 # --- 2. الإذاعة (Broadcast) ---
@@ -77,20 +76,19 @@ def send_welcome(message):
 def broadcast_message(message):
     if message.chat.id not in ADMIN_IDS: return
 
-    # استخراج النص بعد الأمر
     msg_text = message.text.replace("/broadcast", "").strip()
     if not msg_text:
-        bot.reply_to(message, "❌ خطأ: اكتب الرسالة بعد الأمر.\nمثال: `/broadcast السلام عليكم`", parse_mode="Markdown")
+        bot.reply_to(message, "❌ خطأ: اكتب الرسالة بعد الأمر.", parse_mode="Markdown")
         return
 
     history = load_json(HISTORY_FILE)
     users = list(history.keys())
     
     if not users:
-        bot.reply_to(message, "📭 لا يوجد مستخدمين لإرسال الرسالة لهم.")
+        bot.reply_to(message, "📭 لا يوجد مستخدمين.")
         return
 
-    status_msg = bot.reply_to(message, f"⏳ جاري إرسال الرسالة إلى {len(users)} مستخدم...")
+    status_msg = bot.reply_to(message, f"⏳ جاري الإرسال لـ {len(users)}...")
     
     success_count = 0
     blocked_count = 0
@@ -99,12 +97,11 @@ def broadcast_message(message):
         try:
             bot.send_message(user_id, f"📢 **تنويه عام:**\n\n{msg_text}", parse_mode="Markdown")
             success_count += 1
-            time.sleep(0.1) # استراحة بسيطة لتجنب الحظر من تيليجرام
-        except Exception as e:
-            # غالباً الخطأ يعني أن المستخدم حظر البوت
+            time.sleep(0.1)
+        except:
             blocked_count += 1
 
-    bot.edit_message_text(f"✅ **تمت الإذاعة بنجاح!**\n\n📤 تم الإرسال لـ: {success_count}\n❌ فشل (حظروا البوت): {blocked_count}", message.chat.id, status_msg.message_id)
+    bot.edit_message_text(f"✅ **تمت الإذاعة!**\n📤 نجاح: {success_count}\n❌ فشل: {blocked_count}", message.chat.id, status_msg.message_id)
 
 # --- 3. لوحة التحكم ---
 @bot.message_handler(commands=['admin'])
@@ -124,36 +121,33 @@ def show_admin_menu(chat_id):
     markup.add(btn3, btn4)
     markup.add(btn_close)
     
-    bot.send_message(chat_id, "🛠 **لوحة تحكم الإدارة:**", reply_markup=markup)
+    bot.send_message(chat_id, "🛠 **لوحة التحكم:**", reply_markup=markup)
 
-# --- 4. معالج الأزرار (تحديث الحظر) ---
+# --- 4. معالج الأزرار ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     if call.message.chat.id not in ADMIN_IDS: return
 
-    # >> زر الحظر / فك الحظر
     if call.data.startswith("block_"):
         user_id = call.data.split("_")[1]
         admin_name = call.from_user.first_name
         status = toggle_block(user_id, admin_name)
         
-        # تحديث نص الزر فوراً
         new_markup = types.InlineKeyboardMarkup()
         btn_hist = types.InlineKeyboardButton("📜 السجل", callback_data=f"hist_{user_id}")
         
         if status == "blocked":
             btn_block = types.InlineKeyboardButton("✅ إلغاء الحظر", callback_data=f"block_{user_id}")
-            bot.answer_callback_query(call.id, "🚫 تم حظر المستخدم")
-            bot.send_message(call.message.chat.id, f"🚫 قام {admin_name} بحظر المستخدم `{user_id}`.", parse_mode="Markdown")
+            bot.answer_callback_query(call.id, "🚫 تم الحظر")
+            bot.send_message(call.message.chat.id, f"🚫 تم حظر `{user_id}`.", parse_mode="Markdown")
         else:
             btn_block = types.InlineKeyboardButton("⛔ حظر", callback_data=f"block_{user_id}")
             bot.answer_callback_query(call.id, "✅ تم إلغاء الحظر")
-            bot.send_message(call.message.chat.id, f"✅ قام {admin_name} برفع الحظر عن `{user_id}`.", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"✅ تم فك حظر `{user_id}`.", parse_mode="Markdown")
             
         new_markup.add(btn_hist, btn_block)
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=new_markup)
 
-    # >> زر: لم يتم الرد
     elif call.data == "no_reply":
         history = load_json(HISTORY_FILE)
         unanswered = []
@@ -163,12 +157,10 @@ def callback_query(call):
                 unanswered.append(f"• {name}\n🆔 `{uid}`")
         
         if unanswered:
-            text = "📬 **رسائل تنتظر الرد:**\n\n" + "\n".join(unanswered)
-            bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, "📬 **تنتظر الرد:**\n\n" + "\n".join(unanswered), parse_mode="Markdown")
         else:
-            bot.answer_callback_query(call.id, "الكل تم الرد عليه! 🎉")
+            bot.answer_callback_query(call.id, "الكل تم الرد عليه!")
 
-    # >> زر: آخر 5 مستخدمين
     elif call.data == "recent_users":
         history = load_json(HISTORY_FILE)
         if not history:
@@ -180,31 +172,25 @@ def callback_query(call):
         markup = types.InlineKeyboardMarkup(row_width=1)
         for uid in sorted_users:
             display_name = get_customer_name(uid, history)
-            # إضافة علامة 🚫 بجانب الاسم اذا كان محظور
             if is_user_blocked(uid): display_name = "🚫 " + display_name
-            
             markup.add(types.InlineKeyboardButton(f"{display_name} | {uid}", callback_data=f"hist_{uid}"))
         
         markup.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_home"))
         bot.edit_message_text("🕒 **آخر 5 أشخاص:**", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
-    # >> عرض السجل (مع أزرار التحكم)
     elif call.data.startswith("hist_"):
         user_id = call.data.split("_")[1]
         history = load_json(HISTORY_FILE)
-        
-        # تجهيز أزرار التحكم تحت السجل
         markup = types.InlineKeyboardMarkup()
         if is_user_blocked(user_id):
             markup.add(types.InlineKeyboardButton("✅ إلغاء الحظر", callback_data=f"block_{user_id}"))
         else:
-            markup.add(types.InlineKeyboardButton("⛔ حظر المستخدم", callback_data=f"block_{user_id}"))
+            markup.add(types.InlineKeyboardButton("⛔ حظر", callback_data=f"block_{user_id}"))
 
         if user_id in history:
             name = get_customer_name(user_id, history)
             last_msgs = history[user_id][-10:]
-            msg_text = f"📜 **سجل: {name}**\n🆔 `{user_id}`\n\n" + "\n".join(last_msgs)
-            bot.send_message(call.message.chat.id, msg_text, parse_mode="Markdown", reply_markup=markup)
+            bot.send_message(call.message.chat.id, f"📜 **سجل: {name}**\n🆔 `{user_id}`\n\n" + "\n".join(last_msgs), parse_mode="Markdown", reply_markup=markup)
         else:
             bot.answer_callback_query(call.id, "لا يوجد سجل.")
 
@@ -214,7 +200,7 @@ def callback_query(call):
     elif call.data == "stats":
         bot.answer_callback_query(call.id, f"المستخدمين: {len(load_json(HISTORY_FILE))}")
     elif call.data == "status":
-        bot.answer_callback_query(call.id, "شغال 100%")
+        bot.answer_callback_query(call.id, "شغال 100% (PythonAnywhere)")
     elif call.data == "close":
         bot.delete_message(call.message.chat.id, call.message.message_id)
 
@@ -222,21 +208,20 @@ def callback_query(call):
 @bot.message_handler(func=lambda message: message.chat.id not in ADMIN_IDS, content_types=['text', 'photo', 'voice', 'video', 'sticker', 'document'])
 def forward_to_admins(message):
     user_id = message.chat.id
-    
-    # ⛔ التحقق من الحظر
-    if is_user_blocked(user_id):
-        return # تجاهل الرسالة تماماً
+    if is_user_blocked(user_id): return
 
+    # ✅ تم إصلاح السطر الذي كان يسبب الخطأ هنا
     first_name = message.chat.first_name or "مجهول"
+    
     user_name_full = f"{first_name} (@{message.from_user.username})" if message.from_user.username else f"{first_name} (لا يوجد يوزر)"
     username_link = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد"
 
     msg_content = message.text if message.content_type == 'text' else f"[{message.content_type}]"
     save_message(user_id, user_name_full, msg_content, is_admin=False)
     
-    info_text = f"📩 **رسالة جديدة**\n👤 {first_name}\n🔗 {username_link}\n🆔 `{user_id}`\n\n"
+    # ✅ تم تعديل هذا السطر ليحتوي على كلمة ID: لكي يتعرف عليها البوت عند الرد
+    info_text = f"📩 **رسالة جديدة**\n👤 {first_name}\n🔗 {username_link}\n🆔 ID: `{user_id}`\n\n"
     
-    # أزرار الرد (سجل + حظر)
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("📜 السجل", callback_data=f"hist_{user_id}"), 
                types.InlineKeyboardButton("⛔ حظر", callback_data=f"block_{user_id}"))
@@ -261,35 +246,58 @@ def admin_reply(message):
         if search_id:
             user_id = search_id.group(1)
             replier_name = message.from_user.first_name
+            replier_id = message.from_user.id
             
-            reply_content = message.text if message.content_type == 'text' else f"[{message.content_type}]"
-            save_message(user_id, replier_name, reply_content, is_admin=True)
+            # 1. جلب اسم العميل (Live Check)
+            try:
+                chat_info = bot.get_chat(user_id)
+                if chat_info.username:
+                    customer_display_name = f"{chat_info.first_name} (@{chat_info.username})"
+                else:
+                    customer_display_name = f"{chat_info.first_name} (لا يوجد يوزر)"
+            except:
+                history = load_json(HISTORY_FILE)
+                customer_display_name = get_customer_name(user_id, history)
+            
+            # 2. اسم الأدمن
+            if message.from_user.username:
+                admin_display = f"{replier_name} (@{message.from_user.username})"
+            else:
+                admin_display = replier_name
 
+            # حفظ الرد
+            reply_content = message.text if message.content_type == 'text' else f"[{message.content_type}]"
+            save_message(user_id, admin_display, reply_content, is_admin=True)
+
+            # إرسال للعميل
             if message.content_type == 'text':
                 bot.send_message(user_id, f"👮‍♂️ رد الإدارة:\n\n{message.text}")
             elif message.content_type == 'photo':
                 bot.send_photo(user_id, message.photo[-1].file_id, caption=message.caption)
             elif message.content_type == 'voice':
                 bot.send_voice(user_id, message.voice.file_id)
-            elif message.content_type == 'sticker':
-                bot.send_sticker(user_id, message.sticker.file_id)
             
-            # إعادة الأزرار (سجل + حظر) مع رسالة التأكيد
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("📜 السجل", callback_data=f"hist_{user_id}"), 
                        types.InlineKeyboardButton("⛔ حظر", callback_data=f"block_{user_id}"))
             
+            # ✅ تأكدنا من وجود كلمة ID: هنا أيضاً
             bot.reply_to(message, f"✅ تم الإرسال.\n🆔 ID: `{user_id}`", parse_mode="Markdown", reply_markup=markup)
             
+            # 3. إشعار المدراء
+            notification_text = (
+                f"⚠️ **تنبيه:** قام المشرف {admin_display} بالرد.\n"
+                f"👤 على العميل: {customer_display_name}\n"
+                f"📝 الرد: {message.text if message.content_type == 'text' else '📎 ملف'}"
+            )
+            
             for admin in ADMIN_IDS:
-                if admin != message.from_user.id:
-                    try: bot.send_message(admin, f"⚠️ {replier_name} رد على {user_id}.")
+                if admin != replier_id:
+                    try: bot.send_message(admin, notification_text, parse_mode="Markdown")
                     except: pass
         else:
             bot.reply_to(message, "❌ لم أجد الآيدي.")
-
     except Exception as e:
         bot.reply_to(message, f"❌ خطأ: {e}")
 
-keep_alive()
 bot.infinity_polling()
